@@ -3,8 +3,7 @@
 #![allow(
   clippy::module_name_repetitions,
   clippy::fn_params_excessive_bools,
-  clippy::struct_excessive_bools,
-  deprecated
+  clippy::struct_excessive_bools
 )]
 
 #[cfg(not(feature = "std"))]
@@ -22,7 +21,7 @@ pub mod events;
 pub mod telnet;
 
 use compatibility::{CompatibilityEntry, CompatibilityTable};
-use events::{TelnetEvents, TelnetNegotiation, TelnetSubnegotiation};
+use events::{TelnetEvents, TelnetIAC, TelnetNegotiation, TelnetSubnegotiation};
 use telnet::op_command::{DO, DONT, EOR, GA, IAC, NOP, SB, SE, WILL, WONT};
 
 enum EventType {
@@ -103,7 +102,8 @@ impl Parser {
   }
 
   /// Get whether the remote end supports and is using linemode.
-  pub fn linemode_enabled(&mut self) -> bool {
+  #[must_use]
+  pub fn linemode_enabled(&self) -> bool {
     matches!(
       self.options.get_option(telnet::op_option::LINEMODE),
       CompatibilityEntry {
@@ -123,8 +123,17 @@ impl Parser {
     Bytes: From<T>,
   {
     let data = Bytes::from(data);
-    let mut res = BytesMut::with_capacity(data.len());
-    for byte in data {
+    // Fast path: no IAC bytes to escape
+    if !data.contains(&IAC) {
+      return data;
+    }
+    
+    // Reserve exact capacity needed
+    #[allow(clippy::naive_bytecount)]
+    let iac_count = data.iter().filter(|&&b| b == IAC).count();
+    let mut res = BytesMut::with_capacity(data.len() + iac_count);
+    
+    for &byte in &data {
       res.put_u8(byte);
       if byte == IAC {
         res.put_u8(IAC);
@@ -146,8 +155,13 @@ impl Parser {
       Normal,
       Iac,
     }
-
+    
     let data = Bytes::from(data);
+    // Fast path: no IAC-IAC sequences to unescape
+    if !data.windows(2).any(|w| w == [IAC, IAC]) {
+      return data;
+    }
+
     let mut res = BytesMut::with_capacity(data.len());
 
     let mut state = States::Normal;
@@ -184,7 +198,7 @@ impl Parser {
   ///
   /// These Send events contain a buffer that should be sent directly to the remote end, as it will have already been encoded properly.
   pub fn negotiate(&mut self, command: u8, option: u8) -> TelnetEvents {
-    TelnetEvents::build_send(TelnetNegotiation::new(command, option).to_bytes())
+    TelnetEvents::DataSend(TelnetNegotiation::new(command, option).to_bytes())
   }
 
   /// Indicate to the other side that you are able and wanting to utilize an option.
@@ -305,7 +319,7 @@ impl Parser {
         local: true,
         local_state: true,
         ..
-      } => Some(TelnetEvents::build_send(
+      } => Some(TelnetEvents::DataSend(
         TelnetSubnegotiation::new(option, Bytes::from(data)).to_bytes(),
       )),
       _ => None,
@@ -341,7 +355,7 @@ impl Parser {
   ///
   /// The string will have IAC (255) bytes escaped before being sent.
   pub fn send_text(&mut self, text: &str) -> TelnetEvents {
-    TelnetEvents::build_send(Parser::escape_iac(format!("{text}\r\n")))
+    TelnetEvents::DataSend(Parser::escape_iac(format!("{text}\r\n")))
   }
 
   /// Extract sub-buffers from the current buffer
@@ -432,7 +446,7 @@ impl Parser {
           match (buffer.first(), buffer.get(1), buffer.get(2)) {
             (Some(&IAC), Some(command), None) if *command != SE => {
               // IAC command
-              event_list.push(TelnetEvents::build_iac(*command));
+              event_list.push(TelnetEvents::IAC(TelnetIAC::new(*command)));
             }
             (Some(&IAC), Some(command), Some(opt)) => {
               // Negotiation command
@@ -440,7 +454,7 @@ impl Parser {
             }
             (Some(c), _, _) if *c != IAC => {
               // Not an iac sequence, it's data!
-              event_list.push(TelnetEvents::build_receive(buffer));
+              event_list.push(TelnetEvents::DataReceive(buffer));
             }
             _ => {}
           }
@@ -449,11 +463,11 @@ impl Parser {
           let len = buffer.len();
           if buffer[len - 2] == IAC && buffer[len - 1] == SE {
             // Valid ending
-            let opt = self.options.get_option(buffer[2]);
-            if opt.local && opt.local_state && len - 2 >= 3 {
-              event_list.push(TelnetEvents::build_subnegotiation(
-                buffer[2],
-                vbytes!(&buffer[3..len - 2]),
+            let opt_entry = self.options.get_option(buffer[2]);
+            if opt_entry.local && opt_entry.local_state && len >= 4 {
+              let body = if len > 4 { &buffer[3..len - 2] } else { &[] };
+              event_list.push(TelnetEvents::Subnegotiation(
+                TelnetSubnegotiation::new(buffer[2], Bytes::copy_from_slice(body)),
               ));
               if let Some(rbuf) = remaining {
                 event_list.push(TelnetEvents::DecompressImmediate(rbuf));
@@ -483,12 +497,12 @@ impl Parser {
         entry.remote_state = true;
         self.options.set_option(opt, entry);
         vec![
-          TelnetEvents::build_send(vbytes!(&[IAC, DO, opt])),
+          TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, DO, opt])),
           TelnetEvents::Negotiation(event),
         ]
       }
       (WILL, CompatibilityEntry { remote: false, .. }) => {
-        vec![TelnetEvents::build_send(vbytes!(&[IAC, DONT, opt]))]
+        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, DONT, opt]))]
       }
       (
         WONT,
@@ -499,7 +513,7 @@ impl Parser {
         entry.remote_state = false;
         self.options.set_option(opt, entry);
         vec![
-          TelnetEvents::build_send(vbytes!(&[IAC, DONT, opt])),
+          TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, DONT, opt])),
           TelnetEvents::Negotiation(event),
         ]
       }
@@ -515,7 +529,7 @@ impl Parser {
         entry.remote_state = true;
         self.options.set_option(opt, entry);
         vec![
-          TelnetEvents::build_send(vbytes!(&[IAC, WILL, opt])),
+          TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, WILL, opt])),
           TelnetEvents::Negotiation(event),
         ]
       }
@@ -526,7 +540,7 @@ impl Parser {
         }
         | CompatibilityEntry { local: false, .. },
       ) => {
-        vec![TelnetEvents::build_send(vbytes!(&[IAC, WONT, opt]))]
+        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, WONT, opt]))]
       }
       (
         DONT,
@@ -537,7 +551,7 @@ impl Parser {
         entry.local_state = false;
         self.options.set_option(opt, entry);
         vec![
-          TelnetEvents::build_send(vbytes!(&[IAC, WONT, opt])),
+          TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, WONT, opt])),
           TelnetEvents::Negotiation(event),
         ]
       }
