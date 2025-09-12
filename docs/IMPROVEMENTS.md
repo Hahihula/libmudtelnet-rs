@@ -33,22 +33,14 @@ The following critical and high-priority improvements have been implemented in c
 - **Changed** `linemode_enabled(&mut self)` to `linemode_enabled(&self)`
 - **Added** `#[must_use]` attribute for better API usage
 
+### 5. **Added Missing Protocol Constants** ✅
+- **Added** `CHARSET` (42), `MSDP` (69), `MXP` (91), `ATCP` (200) to `telnet::op_option`
+- **Added** `telnet::msdp` module with subnegotiation tag constants (`VAR`, `VAL`, `TABLE_OPEN`, `TABLE_CLOSE`, `ARRAY_OPEN`, `ARRAY_CLOSE`)
+- **Added** comprehensive tests for MSDP subnegotiation parsing and negotiation
+
 ---
 
 ## 🔴 Remaining Critical Priority
-
-### 5. **Add Missing Protocol Constants**
-**Location**: `src/telnet.rs`  
-**Impact**: Better protocol support and compatibility
-
-**Missing Constants**:
-```rust
-pub mod op_option {
-  u8_const!(MSDP, 69);      // MUD Server Data Protocol  
-  u8_const!(MNES, 39);      // NEW-ENVIRON (properly named)
-  u8_const!(CHARSET, 42);   // Character Set negotiation
-}
-```
 
 ## 🟡 High Priority (API Polish)
 

@@ -71,4 +71,19 @@ pub mod op_option {
   u8_const!(MCCP2, 86);
   u8_const!(MCCP3, 87);
   u8_const!(GMCP, 201);
+  u8_const!(CHARSET, 42);  // Character Set negotiation (RFC 2066)
+  u8_const!(MSDP, 69);     // MUD Server Data Protocol
+  u8_const!(MXP, 91);      // MUD eXtension Protocol
+  u8_const!(ATCP, 200);    // Achaea Telnet Client Protocol (legacy)
+}
+
+/// MSDP subnegotiation byte tags (canonical bytes only; no parser).
+/// Spec: <https://tintin.mudhalla.net/protocols/msdp/>
+pub mod msdp {
+  u8_const!(VAR, 1);          // MSDP variable tag (0x01)
+  u8_const!(VAL, 2);          // MSDP value tag (0x02)
+  u8_const!(TABLE_OPEN, 3);   // MSDP table open tag (0x03)
+  u8_const!(TABLE_CLOSE, 4);  // MSDP table close tag (0x04)
+  u8_const!(ARRAY_OPEN, 5);   // MSDP array open tag (0x05)
+  u8_const!(ARRAY_CLOSE, 6);  // MSDP array close tag (0x06)
 }

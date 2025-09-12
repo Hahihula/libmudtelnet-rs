@@ -17,6 +17,10 @@ Initial release of `libmudtelnet` - a fork of `libtelnet-rs`.
 * An optional `arbitrary` crate feature is now available to enable generating 
   arbitrary `event::TelnetIAC`, `event::TelnetNegotiation` and `event::TelnetSubnegotiation` 
   instances for testing.
+* **Added missing Telnet option constants**: `CHARSET` (42), `MSDP` (69), `MXP` (91), and `ATCP` (200) 
+  are now available in `telnet::op_option`.
+* **Added MSDP subnegotiation tag constants**: New `telnet::msdp` module provides canonical byte 
+  constants for MSDP protocol parsing (`VAR`, `VAL`, `TABLE_OPEN`, `TABLE_CLOSE`, `ARRAY_OPEN`, `ARRAY_CLOSE`).
 
 ## Misc
 
