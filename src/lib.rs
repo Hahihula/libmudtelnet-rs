@@ -127,12 +127,12 @@ impl Parser {
     if !data.contains(&IAC) {
       return data;
     }
-    
+
     // Reserve exact capacity needed
     #[allow(clippy::naive_bytecount)]
     let iac_count = data.iter().filter(|&&b| b == IAC).count();
     let mut res = BytesMut::with_capacity(data.len() + iac_count);
-    
+
     for &byte in &data {
       res.put_u8(byte);
       if byte == IAC {
@@ -155,7 +155,7 @@ impl Parser {
       Normal,
       Iac,
     }
-    
+
     let data = Bytes::from(data);
     // Fast path: no IAC-IAC sequences to unescape
     if !data.windows(2).any(|w| w == [IAC, IAC]) {
@@ -464,11 +464,19 @@ impl Parser {
           if buffer[len - 2] == IAC && buffer[len - 1] == SE {
             // Valid ending
             let opt_entry = self.options.get_option(buffer[2]);
-            if opt_entry.local && opt_entry.local_state && len >= 4 {
+            // Check appropriate direction based on option type
+            let should_process = match buffer[2] {
+              // MCCP2: Server-to-client compression, check remote state
+              telnet::op_option::MCCP2 => opt_entry.remote && opt_entry.remote_state,
+              // MCCP3 and other options: Default behavior (local)
+              _ => opt_entry.local && opt_entry.local_state,
+            };
+            if should_process && len >= 4 {
               let body = if len > 4 { &buffer[3..len - 2] } else { &[] };
-              event_list.push(TelnetEvents::Subnegotiation(
-                TelnetSubnegotiation::new(buffer[2], Bytes::copy_from_slice(body)),
-              ));
+              event_list.push(TelnetEvents::Subnegotiation(TelnetSubnegotiation::new(
+                buffer[2],
+                Bytes::copy_from_slice(body),
+              )));
               if let Some(rbuf) = remaining {
                 event_list.push(TelnetEvents::DecompressImmediate(rbuf));
               }
@@ -502,7 +510,9 @@ impl Parser {
         ]
       }
       (WILL, CompatibilityEntry { remote: false, .. }) => {
-        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, DONT, opt]))]
+        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[
+          IAC, DONT, opt,
+        ]))]
       }
       (
         WONT,
@@ -540,7 +550,9 @@ impl Parser {
         }
         | CompatibilityEntry { local: false, .. },
       ) => {
-        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[IAC, WONT, opt]))]
+        vec![TelnetEvents::DataSend(Bytes::copy_from_slice(&[
+          IAC, WONT, opt,
+        ]))]
       }
       (
         DONT,

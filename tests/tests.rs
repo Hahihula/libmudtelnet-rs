@@ -95,13 +95,15 @@ fn handle_events(event_list: Vec<TelnetEvents>) -> CapturedEvents {
 fn test_parser() {
   let mut instance: Parser = Parser::new();
   instance.options.support_local(opt::GMCP);
-  instance.options.support_local(opt::MCCP2);
+  instance.options.support_remote(opt::MCCP2); // MCCP2 is server-to-client
   if let Some(ev) = instance._will(opt::GMCP) {
     assert_eq!(handle_events(vec![ev]), events![Event::Send]);
   }
-  if let Some(ev) = instance._will(opt::MCCP2) {
-    assert_eq!(handle_events(vec![ev]), events![Event::Send]);
-  }
+  // Simulate server WILL MCCP2 to enable remote compression
+  assert_eq!(
+    handle_events(instance.receive(&[cmd::IAC, cmd::WILL, opt::MCCP2])),
+    events![Event::Send, Event::Negotiation]
+  );
   assert_eq!(
     handle_events(instance.receive(&[b"Hello, rust!", &[cmd::IAC, cmd::GA][..]].concat())),
     events![Event::Recv, Event::Iac]
@@ -323,6 +325,30 @@ fn test_bad_subneg_dbuffer() {
 fn test_into_bytes() {
   let bytes = libmudtelnet::events::TelnetIAC::new(cmd::IAC).to_bytes();
   assert!(!bytes.is_empty())
+}
+
+#[test]
+fn test_mccp2_split_packets() {
+  // Test the Aardwolf scenario: MCCP2 subnegotiation in separate packet from compressed data
+  let mut parser = Parser::new();
+  parser.options.support_remote(opt::MCCP2);
+
+  // Server negotiates MCCP2
+  let events = parser.receive(&[cmd::IAC, cmd::WILL, opt::MCCP2]);
+  assert_eq!(
+    handle_events(events),
+    events![Event::Send, Event::Negotiation]
+  );
+
+  // Packet 1: Just the MCCP2 start sequence (IAC SB MCCP2 IAC SE)
+  let events = parser.receive(&[cmd::IAC, cmd::SB, opt::MCCP2, cmd::IAC, cmd::SE]);
+  assert_eq!(
+    handle_events(events),
+    events![Event::Subnegotiation, Event::Decom]
+  );
+
+  // At this point, the client should switch to decompression mode for all subsequent data
+  // The DecompressImmediate event with empty buffer signals this transition
 }
 
 #[cfg(test)]
