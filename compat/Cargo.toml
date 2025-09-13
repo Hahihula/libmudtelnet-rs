@@ -3,6 +3,8 @@ name = "compat"
 description = "helpers for testing compatibility with libtelnet-rs"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.66"
+publish = false
 
 [dependencies]
 arbitrary = { version = "1", optional = true, features = ["derive"] }

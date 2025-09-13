@@ -9,7 +9,7 @@ use std::hint::black_box;
 
 #[derive(Debug, Arbitrary)]
 enum SimulationEvents {
-  IAC(TelnetIAC),
+  Iac(TelnetIAC),
   Negotiation(TelnetNegotiation),
   Subnegotiation(TelnetSubnegotiation),
   Data(Vec<u8>),
@@ -20,8 +20,8 @@ impl SimulationEvents {
     // TODO(XXX): to_bytes() shouldn't require moving, we could drop clones here. Or maybe there
     //   should be an as_ref() for each event?
     match self {
-      SimulationEvents::IAC(iac) => iac.clone().to_bytes(),
-      SimulationEvents::Negotiation(neg) => neg.clone().to_bytes(),
+      SimulationEvents::Iac(iac) => (*iac).to_bytes(),
+      SimulationEvents::Negotiation(neg) => (*neg).to_bytes(),
       SimulationEvents::Subnegotiation(sub) => sub.clone().to_bytes(),
       SimulationEvents::Data(data) => Bytes::copy_from_slice(data),
     }

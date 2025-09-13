@@ -18,8 +18,8 @@ pub fn test_app(app: &TelnetApplication) {
   let mut og_parser = OgParser::with_support(OgCompatibilityTable::from_options(&app.options));
 
   for data in &app.received_data {
-    let our_events = parser.receive(&data);
-    let og_events = events(og_parser.receive(&data));
+    let our_events = parser.receive(data);
+    let og_events = events(og_parser.receive(data));
     assert_eq!(our_events, og_events);
   }
 

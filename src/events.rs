@@ -103,6 +103,7 @@ impl TelnetSubnegotiation {
 
 /// An enum representing various telnet events.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum TelnetEvents {
   /// An IAC command sequence.
   IAC(TelnetIAC),

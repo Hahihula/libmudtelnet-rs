@@ -5,6 +5,47 @@
   clippy::fn_params_excessive_bools,
   clippy::struct_excessive_bools
 )]
+#![forbid(unsafe_code)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
+//! libmudtelnet-rs — Event-driven Telnet (RFC 854) parser for MUD clients.
+//!
+//! - Minimal allocations in hot paths, `bytes::Bytes/BytesMut` throughout.
+//! - Defensive parsing; handles malformed/truncated inputs without panicking.
+//! - Event-driven API compatible with `libtelnet-rs` behavior.
+//!
+//! Quickstart:
+//!
+//! ```rust no_run
+//! use libmudtelnet_rs::{Parser, events::TelnetEvents};
+//!
+//! let mut parser = Parser::new();
+//! let events = parser.receive(b"hello \xff\xff world\r\n");
+//!
+//! for ev in events {
+//!   match ev {
+//!     TelnetEvents::DataReceive(buf) => {
+//!       // handle plain data bytes here
+//!       let _ = buf; // your code
+//!     }
+//!     TelnetEvents::Negotiation(_)
+//!     | TelnetEvents::Subnegotiation(_)
+//!     | TelnetEvents::IAC(_)
+//!     | TelnetEvents::DataSend(_)
+//!     | TelnetEvents::DecompressImmediate(_) => {
+//!       // handle telnet control events as needed
+//!     }
+//!     _ => {}
+//!   }
+//! }
+//!
+//! // Sending text (IAC bytes are escaped automatically):
+//! let _send = parser.send_text("look\r\n");
+//! ```
+//!
+//! `no_std`
+//! - This crate supports `no_std` by disabling default features: `default-features = false`.
+//! - In `no_std` mode, use it as a library parser (no allocations beyond internal buffers).
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;

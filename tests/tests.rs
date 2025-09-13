@@ -79,13 +79,14 @@ fn handle_events(event_list: Vec<TelnetEvents>) -> CapturedEvents {
         events.push(Event::Recv);
       }
       TelnetEvents::DataSend(buffer) => {
-        println!("Send: {:?}", buffer);
+        println!("Send: {buffer:?}");
         events.push(Event::Send);
       }
       TelnetEvents::DecompressImmediate(buffer) => {
-        println!("DECOMPRESS: {:?}", buffer);
+        println!("DECOMPRESS: {buffer:?}");
         events.push(Event::Decom);
       }
+      _ => {}
     };
   }
   events
