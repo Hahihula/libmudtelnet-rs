@@ -1,8 +1,8 @@
 use arbitrary::{Arbitrary, Unstructured};
 use bencher::{benchmark_group, benchmark_main, Bencher};
-use libmudtelnet::bytes::Bytes;
-use libmudtelnet::compatibility::CompatibilityEntry;
-use libmudtelnet::events::{TelnetIAC, TelnetNegotiation, TelnetSubnegotiation};
+use libmudtelnet_rs::bytes::Bytes;
+use libmudtelnet_rs::compatibility::CompatibilityEntry;
+use libmudtelnet_rs::events::{TelnetIAC, TelnetNegotiation, TelnetSubnegotiation};
 use rand::rngs::StdRng;
 use rand::{RngCore, SeedableRng};
 use std::hint::black_box;
@@ -38,7 +38,7 @@ fn bench_receive(b: &mut Bencher) {
   StdRng::from_seed(SEED).fill_bytes(&mut data_buf);
 
   b.iter(|| {
-    let mut parser = libmudtelnet::Parser::default();
+    let mut parser = libmudtelnet_rs::Parser::default();
     for i in 0..255 {
       parser.options.set_option(
         i,

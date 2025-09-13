@@ -397,6 +397,12 @@ impl Parser {
           events.push(EventType::Neg(buf.slice(cmd_begin..=index)));
           (State::Normal, index + 1)
         }
+        // Edge case: truncated subnegotiation like `IAC SB IAC SE`.
+        // If the first byte after SB is IAC, treat it as the start of the
+        // terminating IAC SE sequence rather than as the option byte.
+        // This ensures we emit the completed (empty) subnegotiation and leave
+        // any following bytes (e.g., a trailing NUL) as normal data.
+        (State::Sub, IAC) => (State::SubIac { opt: 0 }, cmd_begin),
         (State::Sub, opt) => (State::SubOpt { opt }, cmd_begin),
         (State::SubOpt { opt } | State::SubIac { opt }, IAC) => {
           (State::SubIac { opt: *opt }, cmd_begin)

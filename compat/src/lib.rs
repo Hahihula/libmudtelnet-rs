@@ -1,6 +1,6 @@
-use libmudtelnet::compatibility::CompatibilityTable;
-use libmudtelnet::events::{TelnetEvents, TelnetIAC, TelnetNegotiation, TelnetSubnegotiation};
-use libmudtelnet::Parser;
+use libmudtelnet_rs::compatibility::CompatibilityTable;
+use libmudtelnet_rs::events::{TelnetEvents, TelnetIAC, TelnetNegotiation, TelnetSubnegotiation};
+use libmudtelnet_rs::Parser;
 
 use libtelnet_rs::compatibility::CompatibilityTable as OgCompatibilityTable;
 use libtelnet_rs::events::TelnetEvents as OgTelnetEvents;

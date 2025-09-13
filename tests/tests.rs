@@ -1,9 +1,9 @@
 use bytes::Bytes;
 
-use libmudtelnet::compatibility::{CompatibilityEntry, CompatibilityTable};
-use libmudtelnet::events::{TelnetEvents, TelnetSubnegotiation};
-use libmudtelnet::telnet::{op_command as cmd, op_option as opt};
-use libmudtelnet::Parser;
+use libmudtelnet_rs::compatibility::{CompatibilityEntry, CompatibilityTable};
+use libmudtelnet_rs::events::{TelnetEvents, TelnetSubnegotiation};
+use libmudtelnet_rs::telnet::{op_command as cmd, op_option as opt};
+use libmudtelnet_rs::Parser;
 
 /// Test the parser and its general functionality.
 
@@ -323,7 +323,7 @@ fn test_bad_subneg_dbuffer() {
 
 #[test]
 fn test_into_bytes() {
-  let bytes = libmudtelnet::events::TelnetIAC::new(cmd::IAC).to_bytes();
+  let bytes = libmudtelnet_rs::events::TelnetIAC::new(cmd::IAC).to_bytes();
   assert!(!bytes.is_empty())
 }
 

@@ -1,15 +1,15 @@
 [package]
-name = "libmudtelnet"
-description = "low-level Telnet protocol implementation for MUD clients"
-version = "2.0.5"
+name = "libmudtelnet-rs"
+description = "Robust, event-driven Telnet (RFC 854) parser for MUD clients with GMCP, MSDP, MCCP support and zero-allocation hot paths"
+version = "2.0.6"
 edition = "2018"
 readme = "README.md"
-homepage = "https://github.com/blightmud/libmudtelnet"
-repository = "https://github.com/blightmud/libmudtelnet"
-documentation = "https://docs.rs/libmudtelnet"
+homepage = "https://github.com/laudney/libmudtelnet-rs"
+repository = "https://github.com/laudney/libmudtelnet-rs"
+documentation = "https://docs.rs/libmudtelnet-rs"
 license = "MIT"
-keywords = ["telnet", "libtelnet", "mud"]
-categories = ["network-programming"]
+keywords = ["telnet", "libtelnet", "mud", "gmcp", "msdp"]
+categories = ["network-programming", "game-development"]
 exclude = ["docs/**", ".github/**"]
 
 [dependencies]
@@ -23,8 +23,7 @@ compat = { path = "compat", features = ["arbitrary"] }
 default = ["std"]
 std = []
 
-[patch.crates-io]
-# We use a fork of libtelnet-rs that has a few patches applied to it to fix bugs also fixed in this repo. If we use
-# the vanilla upstream 2.0.0 release our fuzzing/interop testing will fail when we encounter input that tickles
-# these unfixed bugs.
-libtelnet-rs = { git = "https://github.com/cpu/libtelnet-rs", branch = "cpu-libmudtelnet-compat" }
+[workspace]
+members = [".", "compat"]
+resolver = "2"
+default-members = [".", "compat"]

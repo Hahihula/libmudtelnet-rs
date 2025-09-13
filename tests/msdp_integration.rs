@@ -1,6 +1,6 @@
 use bytes::Bytes;
-use libmudtelnet::telnet::{msdp, op_command as cmd, op_option as opt};
-use libmudtelnet::{
+use libmudtelnet_rs::telnet::{msdp, op_command as cmd, op_option as opt};
+use libmudtelnet_rs::{
   events::{TelnetEvents, TelnetSubnegotiation},
   Parser,
 };

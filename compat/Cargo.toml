@@ -7,11 +7,16 @@ edition = "2021"
 [dependencies]
 arbitrary = { version = "1", optional = true, features = ["derive"] }
 libtelnet-rs = "2.0.0"
-libmudtelnet = { path = "..", features = ["arbitrary"] }
+libmudtelnet-rs = { path = "..", features = ["arbitrary"] }
 bencher = "0.1.5"
 rand = "0.8.5"
+
+[features]
+default = ["arbitrary"]
+arbitrary = ["dep:arbitrary"]
 
 [[bench]]
 name = "benchmarks"
 path = "benches/benchmark.rs"
 harness = false
+required-features = ["arbitrary"]
