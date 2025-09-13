@@ -1,10 +1,8 @@
-name: Fuzz
+name: Fuzz (manual)
 
 on:
-  push:
-    branches: [ main, dev ]
-  pull_request:
-    branches: [ main ]
+  # Disabled by default; run manually from the Actions tab when desired
+  workflow_dispatch:
 
 jobs:
   fuzz:
