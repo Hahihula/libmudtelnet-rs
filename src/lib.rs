@@ -8,14 +8,29 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! libmudtelnet-rs — Event-driven Telnet (RFC 854) parser for MUD clients.
+//! libmudtelnet-rs — Robust, event‑driven Telnet (RFC 854) for MUD clients
 //!
-//! - Minimal allocations in hot paths, `bytes::Bytes/BytesMut` throughout.
-//! - Defensive parsing; handles malformed/truncated inputs without panicking.
-//! - Event-driven API compatible with `libtelnet-rs` behavior.
+//! libmudtelnet-rs turns a raw Telnet byte stream into a sequence of
+//! strongly-typed events you can act on. It prioritizes correctness,
+//! compatibility with real MUD servers, and performance in hot paths.
 //!
-//! Quickstart:
+//! - Minimal allocations in hot paths using `bytes::Bytes/BytesMut`.
+//! - Defensive parsing of malformed and truncated inputs (no panics on input).
+//! - Event semantics compatible with `libtelnet-rs` where practical.
+//! - Optional `no_std` support (disable default features).
 //!
+//! When to use this crate
+//! - You are building a MUD client or tool and need reliable Telnet parsing.
+//! - You want clean events for negotiation, subnegotiation (GMCP/MSDP/etc.),
+//!   and data, without dealing with byte-level edge cases.
+//!
+//! Core concepts
+//! - [`Parser`]: Stateful Telnet parser. Feed it bytes; it returns `Vec<TelnetEvents>`.
+//! - [`events`]: Defines [`TelnetEvents`], the event enum your code matches on.
+//! - [`telnet`]: Constants for Telnet commands (`op_command`) and options (`op_option`).
+//! - [`compatibility`]: Negotiation support/state table used by the parser.
+//!
+//! Quickstart
 //! ```rust no_run
 //! use libmudtelnet_rs::{Parser, events::TelnetEvents};
 //!
@@ -25,27 +40,131 @@
 //! for ev in events {
 //!   match ev {
 //!     TelnetEvents::DataReceive(buf) => {
-//!       // handle plain data bytes here
-//!       let _ = buf; // your code
+//!       // Application text/data from the server
+//!       let _bytes = &buf[..];
 //!     }
-//!     TelnetEvents::Negotiation(_)
-//!     | TelnetEvents::Subnegotiation(_)
-//!     | TelnetEvents::IAC(_)
+//!     TelnetEvents::Negotiation(n) => {
+//!       // WILL/WONT/DO/DONT notifications (state is tracked internally)
+//!       let _cmd = n.command;
+//!       let _opt = n.option;
+//!     }
+//!     TelnetEvents::Subnegotiation(sub) => {
+//!       // Protocol payload (e.g., GMCP/MSDP)
+//!       let _which = sub.option;
+//!       let _payload = &sub.buffer[..];
+//!     }
+//!     TelnetEvents::IAC(_)
 //!     | TelnetEvents::DataSend(_)
-//!     | TelnetEvents::DecompressImmediate(_) => {
-//!       // handle telnet control events as needed
-//!     }
+//!     | TelnetEvents::DecompressImmediate(_) => {}
 //!     _ => {}
 //!   }
 //! }
 //!
-//! // Sending text (IAC bytes are escaped automatically):
+//! // Sending text (IAC bytes escaped for you):
 //! let _send = parser.send_text("look\r\n");
 //! ```
 //!
+//! Negotiation and subnegotiation
+//! - Use [`Parser::_will`], [`Parser::_wont`], [`Parser::_do`], [`Parser::_dont`] to drive
+//!   option state changes for options you support (see [`compatibility`]).
+//! - Use [`Parser::subnegotiation`] to send payloads; the parser wraps bytes with
+//!   `IAC SB <option> ... IAC SE` and escapes `IAC` inside the body.
+//!
+//! MCCP decompression boundary
+//! - For MCCP2/3, when a compression turn‑on is received and supported, the parser
+//!   emits a [`TelnetEvents::Subnegotiation`] followed by [`TelnetEvents::DecompressImmediate`]
+//!   containing the bytes that must be decompressed before feeding back into
+//!   [`Parser::receive`].
+//!
+//! Example: handling MCCP2/3 boundaries
+//! ```rust no_run
+//! use libmudtelnet_rs::{Parser, events::TelnetEvents};
+//!
+//! fn decompress_identity(data: &[u8]) -> Vec<u8> { data.to_vec() }
+//!
+//! let mut parser = Parser::new();
+//! for ev in parser.receive(&[]) {
+//!   match ev {
+//!     TelnetEvents::DecompressImmediate(data) => {
+//!       let decompressed = decompress_identity(&data);
+//!       let more = parser.receive(&decompressed);
+//!       // handle `more` like any other events
+//!       drop(more);
+//!     }
+//!     _ => {}
+//!   }
+//! }
+//! ```
+//!
 //! `no_std`
-//! - This crate supports `no_std` by disabling default features: `default-features = false`.
-//! - In `no_std` mode, use it as a library parser (no allocations beyond internal buffers).
+//! - Disable default features to build in `no_std` environments:
+//!   `libmudtelnet-rs = { version = "*", default-features = false }`
+//! - In `no_std`, APIs behave the same; internal buffers use `bytes`.
+//!
+//! Tips
+//! - Always write out `TelnetEvents::DataSend` exactly as provided.
+//! - Treat `TelnetEvents::DataReceive` as application data; it has already had
+//!   any doubled IACs unescaped.
+//! - Negotiate only options you actually support (via [`compatibility`]).
+//! - Prefer working with `&[u8]`/`Bytes` payloads; avoid `String` unless you
+//!   know the server’s encoding.
+//!
+//! Common recipes
+//! - NAWS (window size) send
+//!   ```rust
+//!   # use bytes::{BufMut, BytesMut};
+//!   # use libmudtelnet_rs::{Parser, events::TelnetEvents};
+//!   # use libmudtelnet_rs::telnet::op_option::NAWS;
+//!   let mut parser = Parser::new();
+//!   let mut payload = BytesMut::with_capacity(4);
+//!   payload.put_u16(120); // width
+//!   payload.put_u16(40);  // height
+//!   if let Some(TelnetEvents::DataSend(buf)) = parser.subnegotiation(NAWS, payload.freeze()) {
+//!     /* write buf to socket */
+//!   }
+//!   ```
+//! - TTYPE (terminal type) identify
+//!   ```rust
+//!   # use libmudtelnet_rs::{Parser, events::TelnetEvents};
+//!   # use libmudtelnet_rs::telnet::{op_option::TTYPE, op_command::{IAC, IS}};
+//!   let mut parser = Parser::new();
+//!   // IAC SB TTYPE IS "xterm-256color" IAC SE
+//!   let mut body = Vec::new();
+//!   body.extend([IAC, IS]);
+//!   body.extend(b"xterm-256color");
+//!   if let Some(TelnetEvents::DataSend(buf)) = parser.subnegotiation(TTYPE, body) {
+//!     /* write buf to socket */
+//!   }
+//!   ```
+//! - GMCP send (JSON text)
+//!   ```rust
+//!   # use libmudtelnet_rs::{Parser, events::TelnetEvents};
+//!   # use libmudtelnet_rs::telnet::op_option::GMCP;
+//!   let mut parser = Parser::new();
+//!   let json = r#"{\"Core.Supports.Add\":[\"Room 1\"]}"#;
+//!   if let Some(TelnetEvents::DataSend(buf)) = parser.subnegotiation_text(GMCP, json) {
+//!     /* write buf to socket */
+//!   }
+//!   ```
+//! - Escape/unescape IAC when handling raw buffers
+//!   ```rust
+//!   # use libmudtelnet_rs::Parser;
+//!   # use libmudtelnet_rs::telnet::op_command::IAC;
+//!   let escaped = Parser::escape_iac(vec![IAC, 1, 2]);
+//!   let roundtrip = Parser::unescape_iac(escaped);
+//!   assert_eq!(&roundtrip[..], [IAC, 1, 2]);
+//!   ```
+//!
+//! Feature flags
+//! - `std` (default): Enables standard library usage. Disable for `no_std`.
+//! - `arbitrary`: Implements `arbitrary::Arbitrary` for fuzzing/dev.
+//!
+//! FAQ
+//! - “Why does `send_text` return an event?” To unify I/O: everything that must
+//!   go to the socket is surfaced as `TelnetEvents::DataSend(Bytes)`.
+//! - “Do I need to escape IAC myself?” No when using `send_text` and
+//!   `subnegotiation[_text]`. Yes only if you craft raw buffers yourself.
+//! - “Where is TCP handled?” Out of scope; this crate is protocol parsing only.
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -84,7 +203,12 @@ macro_rules! vbytes {
   };
 }
 
-/// A telnet parser that handles the main parts of the protocol.
+/// Stateful, event‑driven Telnet parser.
+///
+/// Feed incoming bytes with [`Parser::receive`] and iterate the returned
+/// [`events::TelnetEvents`] to handle application data, negotiations, and
+/// subnegotiations. The parser minimizes copies by slicing into an internal
+/// buffer and returning `bytes::Bytes` views where possible.
 pub struct Parser {
   pub options: CompatibilityTable,
   buffer: BytesMut,
@@ -159,6 +283,13 @@ impl Parser {
   ///
   /// # Example
   /// `[255, 1, 6, 2]` -> `[255, 255, 1, 6, 2]`
+  ///
+  /// ```
+  /// use libmudtelnet_rs::Parser;
+  /// use libmudtelnet_rs::telnet::op_command::IAC;
+  /// let out = Parser::escape_iac(vec![IAC, 1, 6, 2]);
+  /// assert_eq!(&out[..], [IAC, IAC, 1, 6, 2]);
+  /// ```
   pub fn escape_iac<T>(data: T) -> Bytes
   where
     Bytes: From<T>,
@@ -187,6 +318,13 @@ impl Parser {
   ///
   /// # Example
   /// `[255, 255, 1, 6, 2]` -> `[255, 1, 6, 2]`
+  ///
+  /// ```
+  /// use libmudtelnet_rs::Parser;
+  /// use libmudtelnet_rs::telnet::op_command::IAC;
+  /// let out = Parser::unescape_iac(vec![IAC, IAC, 1, 6, 2]);
+  /// assert_eq!(&out[..], [IAC, 1, 6, 2]);
+  /// ```
   pub fn unescape_iac<T>(data: T) -> Bytes
   where
     Bytes: From<T>,
@@ -428,7 +566,7 @@ impl Parser {
           (State::Iac, index)
         }
         (State::Iac, IAC) => (State::Normal, cmd_begin), // Double IAC, ignore,
-        (State::Iac, GA | EOR | NOP) => {
+        (State::Iac, b) if b == GA || b == EOR || b == NOP => {
           events.push(EventType::Iac(buf.slice(cmd_begin..=index)));
           (State::Normal, index + 1)
         }
@@ -614,7 +752,7 @@ impl Parser {
           TelnetEvents::Negotiation(event),
         ]
       }
-      (DONT | WONT, CompatibilityEntry { .. }) => {
+      (_, CompatibilityEntry { .. }) if command == DONT || command == WONT => {
         vec![TelnetEvents::Negotiation(event)]
       }
       _ => Vec::default(),

@@ -1,3 +1,29 @@
+//! Negotiation support and state table.
+//!
+//! The parser uses a compact 256‑entry table to record, for each Telnet
+//! option, whether it is supported locally (us→them), supported remotely
+//! (them→us), and whether either direction is currently enabled.
+//!
+//! Typical usage
+//! ```
+//! use libmudtelnet_rs::{Parser, compatibility::{CompatibilityEntry, CompatibilityTable}};
+//! use libmudtelnet_rs::telnet::op_option::GMCP;
+//! use libmudtelnet_rs::telnet::op_command::WILL;
+//!
+//! // Declare that we support GMCP locally and remotely, initially disabled.
+//! let mut table = CompatibilityTable::new();
+//! table.set_option(GMCP, CompatibilityEntry::new(true, true, false, false));
+//!
+//! let mut parser = Parser::with_support(table);
+//! // Ask to enable GMCP locally (IAC WILL GMCP)
+//! if let Some(send) = parser._will(GMCP) { let _bytes_to_socket = send.to_bytes(); }
+//! // When the server responds (e.g., DO GMCP), the parser tracks state for you.
+//! let _ = WILL; // avoid unused import in doctest
+//! ```
+//!
+//! Tip: call [`CompatibilityTable::reset_states`] when reconnecting, to clear any
+//! enabled flags while preserving which options you support.
+
 /// An expansion of a bitmask contained in `CompatibilityTable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompatibilityEntry {

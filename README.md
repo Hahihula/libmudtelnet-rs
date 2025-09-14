@@ -1,18 +1,8 @@
-```
-    ∞
-   ╱ ╲    "The monad, of which we shall speak here,
-  │   │    is nothing but a simple substance..."
-  │ ● │
-  │   │    libmudtelnet-rs - composable Telnet atoms
-   ╲ ╱     for robust MUD clients
-    ∞
-```
-
 # libmudtelnet-rs
 
-**A robust, event-driven Telnet parser for MUD clients in Rust**
+[![Crates.io][crate-badge]][crate-link] [![Docs.rs][docs-badge]][docs-link]
 
-Low-level, RFC 854-correct, zero-allocation hot paths with comprehensive MUD protocol support.
+Robust, event‑driven Telnet (RFC 854) parsing for MUD clients in Rust — with minimal allocations, strong real‑world compatibility, and clean, typed events.
 
 ## Standing on the Shoulders of Giants
 
@@ -20,17 +10,29 @@ libmudtelnet-rs is a fork of [libmudtelnet] by the [Blightmud] team, which power
 
 This project continues the specialization for the unique and demanding world of MUDs. Our focus is on adding comprehensive MUD protocol support, fixing critical edge-case bugs encountered in the wild, and relentlessly pursuing the correctness and performance that modern MUD clients deserve.
 
-## Why MUD Clients Need This
+## Why MUD clients need this
 
 You're building a MUD client. You need to handle Telnet negotiation, GMCP data streams, MCCP compression, and MSDP variables. Your parser must be robust against malformed sequences from decades-old servers while maintaining zero-allocation performance in hot paths.
 
 Standard Telnet parsers expect compliance; MUD servers offer chaos. A stray `SE` byte without `IAC`, truncated subnegotiations, or multiple escaped `IAC` sequences can crash naive implementations. libmudtelnet handles these realities gracefully while delivering clean, structured events for your application logic.
 
-Use libmudtelnet-rs so you can focus on building amazing triggers, mappers, and UIs instead of debugging protocol edge cases.
+Use libmudtelnet‑rs so you can focus on building triggers, mappers, and UIs instead of debugging protocol edge cases.
 
-## Complete Protocol Support
+## Install
 
-### MUD-Specific Protocols (All Fully Supported)
+Add to your Cargo.toml:
+
+```toml
+[dependencies]
+libmudtelnet-rs = "2"
+```
+
+- MSRV: Rust 1.66+
+- License: MIT
+
+## Protocol support
+
+### MUD‑specific (fully supported)
 
 1. **GMCP (201)** - Generic MUD Communication Protocol
    - Most widely adopted for JSON game data exchange
@@ -63,7 +65,7 @@ Use libmudtelnet-rs so you can focus on building amazing triggers, mappers, and 
    - Legacy IRE MUD protocol support
    - Backward compatibility for older systems
 
-### Standard Telnet Options (All Negotiable)
+### Standard Telnet options (negotiable)
 
 - **NAWS (31)** - Negotiate About Window Size
 - **TTYPE (24)** - Terminal Type negotiation
@@ -77,97 +79,106 @@ Use libmudtelnet-rs so you can focus on building amazing triggers, mappers, and 
 - **LINEMODE (34)** - Line-at-a-time input mode
 - Plus 30+ additional standard options with full state tracking
 
-## Usage
+## Quickstart
 
-### Basic Parser Loop
+### Basic parser loop
 
 ```rust
 use libmudtelnet_rs::{Parser, events::TelnetEvents};
-use libmudtelnet_rs::telnet::{op_option, msdp};
+use libmudtelnet_rs::telnet::op_option;
 
-// Create parser - place near your socket
 let mut parser = Parser::new();
 
-// Process incoming bytes from socket
+// Feed bytes from your socket
 let events = parser.receive(&socket_bytes);
 
-// Handle structured events
-for event in events {
-    match event {
+for ev in events {
+    match ev {
         TelnetEvents::DataReceive(data) => {
-            // Raw text/data from the MUD
+            // bytes::Bytes (zero‑copy view)
             app.display_text(&data);
+        }
+        TelnetEvents::Subnegotiation(sub) => match sub.option {
+            op_option::GMCP => app.handle_gmcp(&sub.buffer),
+            op_option::MSDP => app.handle_msdp(&sub.buffer),
+            _ => {}
         },
-
-        TelnetEvents::Subnegotiation(sub) => {
-            // Complete protocol payloads
-            match sub.option {
-                op_option::GMCP => {
-                    // Parse GMCP JSON: {"room.info": {"name": "Temple"}}
-                    let gmcp_data: serde_json::Value =
-                        serde_json::from_slice(&sub.buffer)?;
-                    app.handle_gmcp(gmcp_data);
-                },
-                op_option::MSDP => {
-                    // Parse MSDP VAR/VAL pairs
-                    app.parse_msdp_data(&sub.buffer);
-                },
-                op_option::MSSP => {
-                    // Server status information
-                    app.update_server_info(&sub.buffer);
-                },
-                _ => {}
-            }
-        },
-
-        TelnetEvents::Negotiation(neg) => {
-            // Automatic option negotiation (state tracked)
-            app.log_negotiation(neg.command, neg.option);
-        },
-
+        TelnetEvents::Negotiation(neg) => app.log_neg(neg.command, neg.option),
         TelnetEvents::DecompressImmediate(data) => {
-            // MCCP2/3: Decompress this data before processing
-            let decompressed = decompress(&data)?;
-            let new_events = parser.receive(&decompressed);
-            // Process new_events...
-        },
-
-        TelnetEvents::DataSend(data) => {
-            // Send this data to the socket
-            socket.write_all(&data)?;
-        },
-
+            // MCCP2/3: decompress then feed back into the parser
+            let decompressed = app.decompress(&data)?;
+            for ev in parser.receive(&decompressed) { app.handle_event(ev); }
+        }
+        TelnetEvents::DataSend(buf) => socket.write_all(&buf)?,
         _ => {}
     }
 }
 
-// Send text with proper escaping
-if let Some(data) = parser.send_text("say Hello, world!\r\n") {
-    socket.write_all(&data)?;
+// Send a line (IACs escaped for you, "\r\n" appended)
+let to_send = parser.send_text("say Hello, world!");
+if let TelnetEvents::DataSend(buf) = to_send { socket.write_all(&buf)?; }
+```
+
+### Tokio integration (async)
+
+If your app uses Tokio, integrate the parser in your read loop and write any `DataSend` bytes back to the socket as-is. Example skeleton:
+
+```rust
+use libmudtelnet_rs::{Parser, events::TelnetEvents};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut stream = TcpStream::connect("mud.example.org:4000").await?;
+    let (mut r, mut w) = stream.split();
+    let mut parser = Parser::new();
+    let mut buf = vec![0u8; 4096];
+
+    loop {
+        let n = r.read(&mut buf).await?;
+        if n == 0 { break; }
+        for ev in parser.receive(&buf[..n]) {
+            match ev {
+                TelnetEvents::DataReceive(data) => print!("{}", String::from_utf8_lossy(&data)),
+                TelnetEvents::DataSend(data) => w.write_all(&data).await?,
+                TelnetEvents::DecompressImmediate(block) => {
+                    // Decompress then feed back (identity shown)
+                    for ev2 in parser.receive(&block) {
+                        if let TelnetEvents::DataReceive(d) = ev2 {
+                            print!("{}", String::from_utf8_lossy(&d));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
 ```
 
-### Protocol Negotiation
+See a full template in `examples/tokio_client.rs`.
+
+### Protocol negotiation
 
 ```rust
-use libmudtelnet_rs::events::TelnetNegotiation;
+use libmudtelnet_rs::{Parser, events::TelnetEvents};
 use libmudtelnet_rs::telnet::op_command::{WILL, DO};
 use libmudtelnet_rs::telnet::op_option::{GMCP, NAWS};
 
-// Enable GMCP support
-let negotiation = TelnetNegotiation::new(WILL, GMCP);
-if let Some(data) = parser.negotiate(&negotiation) {
-    socket.write_all(&data)?;
-}
+let mut parser = Parser::new();
 
-// Request server's window size capability
-let negotiation = TelnetNegotiation::new(DO, NAWS);
-if let Some(data) = parser.negotiate(&negotiation) {
-    socket.write_all(&data)?;
-}
+// Announce that we WILL use GMCP locally
+let will_gmcp = parser.negotiate(WILL, GMCP);
+if let TelnetEvents::DataSend(buf) = will_gmcp { socket.write_all(&buf)?; }
+
+// Ask the server to DO NAWS (report window size)
+let do_naws = parser.negotiate(DO, NAWS);
+if let TelnetEvents::DataSend(buf) = do_naws { socket.write_all(&buf)?; }
 ```
 
-### MSDP Data Handling
+### MSDP data handling
 
 ```rust
 use libmudtelnet_rs::telnet::msdp;
@@ -188,7 +199,7 @@ fn parse_msdp_data(data: &[u8]) {
 }
 ```
 
-## Event-Driven Architecture
+## Event‑driven architecture
 
 libmudtelnet-rs transforms the Telnet byte stream into a clean sequence of structured events:
 
@@ -203,7 +214,7 @@ This separation keeps your network I/O simple and your protocol handling clean.
 
 ## Battle-Tested Robustness
 
-### Edge Case Handling
+### Edge‑case handling
 
 libmudtelnet-rs has been hardened against real-world protocol violations:
 
@@ -212,7 +223,7 @@ libmudtelnet-rs has been hardened against real-world protocol violations:
 - **Multiple IAC escaping**: Complex escape sequences (`IAC IAC IAC IAC`) are correctly unescaped
 - **Option 0xFF handling**: Negotiation of option 255 with truncated data is handled safely
 
-### Testing and Validation
+### Testing and validation
 
 - **Fuzz Testing**: Continuous fuzzing with `cargo-fuzz` bombards the parser with malformed inputs
 - **Compatibility Tests**: Validates behavior against libtelnet-rs test cases
@@ -220,14 +231,14 @@ libmudtelnet-rs has been hardened against real-world protocol violations:
 - **Property Tests**: Round-trip and invariant validation
 - **Production Heritage**: Serves as the foundation for Blightmud's Telnet implementation
 
-## Performance and Memory
+## Performance and memory
 
 - **Zero-allocation hot paths**: Uses `bytes::BytesMut` to avoid copies in parsing loops
 - **Zero-copy events**: Protocol payloads delivered as `bytes::Bytes` slices
 - **Efficient state tracking**: Minimal memory footprint for negotiation states
 - **no_std compatible**: Works in embedded environments (disable default features)
 
-## API Stability
+## API stability
 
 libmudtelnet-rs maintains API compatibility with libtelnet-rs where practical. The event semantics are stable - breaking changes follow semver and include migration guides.
 
@@ -235,7 +246,7 @@ libmudtelnet-rs maintains API compatibility with libtelnet-rs where practical. T
 
 We welcome contributions from the MUD and Rust communities! Whether you've found a bug, want to add protocol support, or improve documentation, your help is appreciated.
 
-### Getting Started
+### Getting started
 
 ```bash
 # Build and test
@@ -255,12 +266,15 @@ cd fuzz && cargo fuzz run parser_receive
 cd compat && cargo bench
 ```
 
-### Ways to Contribute
+### Ways to contribute
 
-- **Report Bugs**: Found a MUD server that sends data the parser doesn't handle? Please [open an issue](https://github.com/blightmud/libmudtelnet/issues) with details
+- **Report Bugs**: Found a MUD server that sends data the parser doesn't handle? Please [open an issue](https://github.com/laudney/libmudtelnet-rs/issues) with details
 - **Add Protocol Support**: Want support for a new MUD protocol? Let's discuss implementation approach
 - **Improve Tests**: Additional fuzz targets, edge cases, or property tests are always valuable
 - **Documentation**: Code examples, protocol explanations, or usage guides
+  
+- Good first issues: check the [good first issue label](https://github.com/laudney/libmudtelnet-rs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+- Examples: see `examples/basic.rs`, `examples/tokio_client.rs`, and `docs/API_EXAMPLES.md`
 
 This project follows the Rust Code of Conduct. We're committed to providing a welcoming environment for all contributors.
 
@@ -280,10 +294,10 @@ Many thanks to:
 
 [github-actions-badge]: https://img.shields.io/github/actions/workflow/status/blightmud/libmudtelnet/rust.yml?label=build%20%26%20tests&logo=github&style=for-the-badge&branch=main
 [github-actions-link]: https://github.com/blightmud/libmudtelnet/actions/workflows/rust.yml?query=branch%3Amain
-[crate-badge]: https://img.shields.io/crates/v/libmudtelnet.svg?style=for-the-badge
-[crate-link]: https://crates.io/crates/libmudtelnet
-[docs-badge]: https://img.shields.io/badge/docs-rs-blue.svg?style=for-the-badge
-[docs-link]: https://docs.rs/libmudtelnet
+[crate-badge]: https://img.shields.io/crates/v/libmudtelnet-rs.svg?style=for-the-badge
+[crate-link]: https://crates.io/crates/libmudtelnet-rs
+[docs-badge]: https://img.shields.io/docsrs/libmudtelnet-rs?style=for-the-badge
+[docs-link]: https://docs.rs/libmudtelnet-rs
 [libtelnet-rs]: https://github.com/envis10n/libtelnet-rs
 [libtelnet]: https://github.com/seanmiddleditch/libtelnet
 [libmudtelnet]: https://github.com/Blightmud/libmudtelnet

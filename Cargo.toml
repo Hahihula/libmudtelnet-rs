@@ -1,7 +1,7 @@
 [package]
 name = "libmudtelnet-rs"
 description = "Robust, event-driven Telnet (RFC 854) parser for MUD clients with GMCP, MSDP, MCCP support and zero-allocation hot paths"
-version = "2.0.8"
+version = "2.0.9"
 edition = "2018"
 rust-version = "1.66"
 readme = "README.md"

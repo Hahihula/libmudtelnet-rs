@@ -1,3 +1,17 @@
+//! Telnet command and option constants.
+//!
+//! This module provides `u8` constants for Telnet opcodes and option codes
+//! used across the parser and by your application code.
+//!
+//! Quick reference
+//! ```
+//! use libmudtelnet_rs::telnet::op_command as cmd;
+//! use libmudtelnet_rs::telnet::op_option as opt;
+//! assert_eq!(cmd::IAC, 255);
+//! assert_eq!(cmd::WILL, 251);
+//! assert_eq!(opt::GMCP, 201);
+//! ```
+
 // Define a public u8 constant with the given name and constant value.
 macro_rules! u8_const {
   ($name: ident, $value: expr) => {

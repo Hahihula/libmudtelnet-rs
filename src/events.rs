@@ -1,3 +1,30 @@
+//! Event types emitted by the Telnet parser.
+//!
+//! The parser transforms incoming bytes into a small set of structured events
+//! that are easy to handle in your application loop:
+//!
+//! - [`TelnetEvents::DataReceive`]: Application data from the server. Any
+//!   doubled IAC bytes are already unescaped. The payload is a zero‑copy
+//!   `bytes::Bytes` slice referencing the parser’s buffer at parse time.
+//! - [`TelnetEvents::DataSend`]: Bytes your app must send to the socket as‑is.
+//!   These are already fully encoded (negotiation frames, escaped IAC, etc.).
+//! - [`TelnetEvents::Negotiation`]: A WILL/WONT/DO/DONT triplet.
+//! - [`TelnetEvents::Subnegotiation`]: `IAC SB <option> <data> IAC SE` payload.
+//!   Inside `<data>`, embedded IAC bytes have been escaped on send and are
+//!   presented as‑is on receive.
+//! - [`TelnetEvents::IAC`]: A two‑byte IAC command such as GA/EOR/NOP.
+//! - [`TelnetEvents::DecompressImmediate`]: MCCP2/3 boundary signal. Decompress
+//!   this payload immediately and feed the result back into `Parser::receive`.
+//!
+//! Converting back to bytes
+//! ```
+//! use libmudtelnet_rs::events::{TelnetEvents, TelnetIAC};
+//! use libmudtelnet_rs::telnet::op_command::{IAC, NOP};
+//! let ev = TelnetEvents::IAC(TelnetIAC::new(NOP));
+//! let bytes = ev.to_bytes();
+//! assert_eq!(&bytes[..], [IAC, NOP]);
+//! ```
+
 use alloc::vec::Vec;
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -5,7 +32,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use crate::telnet::op_command::{IAC, SB, SE};
 use crate::Parser;
 
-/// A struct representing a 2 byte IAC sequence.
+/// A struct representing a 2‑byte `IAC <command>` sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TelnetIAC {
@@ -18,7 +45,7 @@ impl TelnetIAC {
     Self { command }
   }
 
-  /// Consume the sequence struct and return the bytes.
+  /// Consume the sequence struct and return the encoded bytes.
   #[must_use]
   pub fn to_bytes(self) -> Bytes {
     Bytes::copy_from_slice(&[IAC, self.command])
@@ -31,7 +58,7 @@ impl TelnetIAC {
   }
 }
 
-/// A struct representing a 3 byte IAC sequence.
+/// A struct representing a 3‑byte `IAC <command> <option>` negotiation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TelnetNegotiation {
@@ -45,7 +72,7 @@ impl TelnetNegotiation {
     Self { command, option }
   }
 
-  /// Consume the sequence struct and return the bytes.
+  /// Consume the sequence struct and return the encoded bytes.
   #[must_use]
   pub fn to_bytes(self) -> Bytes {
     Bytes::copy_from_slice(&[IAC, self.command, self.option])
@@ -58,7 +85,7 @@ impl TelnetNegotiation {
   }
 }
 
-/// A struct representing an arbitrary length IAC subnegotiation sequence.
+/// A struct representing `IAC SB <option> <data> IAC SE`.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TelnetSubnegotiation {
   pub option: u8,
@@ -101,21 +128,21 @@ impl TelnetSubnegotiation {
   }
 }
 
-/// An enum representing various telnet events.
+/// The set of events produced by the parser.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TelnetEvents {
-  /// An IAC command sequence.
+  /// A 2‑byte IAC command sequence (e.g., GA/EOR/NOP).
   IAC(TelnetIAC),
-  /// An IAC negotiation sequence.
+  /// A WILL/WONT/DO/DONT negotiation (`IAC <cmd> <opt>`).
   Negotiation(TelnetNegotiation),
-  /// An IAC subnegotiation sequence.
+  /// A subnegotiation payload (`IAC SB <opt> <data> IAC SE`).
   Subnegotiation(TelnetSubnegotiation),
-  /// Regular data received from the remote end.
+  /// Application data received from the remote end.
   DataReceive(Bytes),
-  /// Any data to be sent to the remote end.
+  /// Fully encoded data to send to the remote end.
   DataSend(Bytes),
-  /// MCCP2/3 compatibility. MUST DECOMPRESS THIS DATA BEFORE PARSING
+  /// MCCP2/3 boundary. Decompress this data before feeding back into the parser.
   DecompressImmediate(Bytes),
 }
 

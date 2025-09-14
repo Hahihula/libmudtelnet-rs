@@ -1,3 +1,22 @@
+# v2.0.9 — 2025-09-14
+
+Release by: Larry Wren
+
+## Documentation
+
+- Crate-level docs: rewritten for clarity with Quickstart, MCCP boundary handling, recipes (NAWS, TTYPE, GMCP), feature flags, and FAQ.
+- Module docs: added to `events`, `compatibility`, and `telnet` with runnable examples so docs.rs renders a complete picture of the API.
+- README: modernized and corrected — added install snippet, badges (crates.io, docs.rs), accurate code samples, links to examples, and contributor guidance.
+- Examples: new `examples/basic.rs` and `examples/tokio_client.rs` (async Tokio integration). Fixed doctests to work with `bytes::Bytes` conversions and non_exhaustive enums.
+
+## Tooling
+
+- clippy pedantic: resolved doc_markdown lint; repo is clean with `cargo clippy --all-targets --all-features -D warnings`.
+
+## Notes
+
+- No API or behavior changes. Patch release focused on documentation quality and developer experience.
+
 # v2.0.8 — 2025-09-13
 
 Release by: Larry Wren
