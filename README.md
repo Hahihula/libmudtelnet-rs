@@ -178,6 +178,20 @@ let do_naws = parser.negotiate(DO, NAWS);
 if let TelnetEvents::DataSend(buf) = do_naws { socket.write_all(&buf)?; }
 ```
 
+#### Interop note: GMCP/MSDP bidirectional after DO
+
+Many MUD servers expect GMCP/MSDP to be bidirectional once the server sends
+`IAC WILL GMCP|MSDP` and the client responds `IAC DO`. libmudtelnet‑rs follows
+this behavior:
+
+- It accepts GMCP/MSDP subnegotiations after a server `WILL/DO` handshake even
+  if the client never sent `WILL`.
+- It also allows the client to send GMCP/MSDP subnegotiations once the remote
+  side is active, preventing deadlocks with servers that do not echo `DO` to a
+  client `WILL`.
+
+Other options retain standard Telnet semantics.
+
 ### MSDP data handling
 
 ```rust

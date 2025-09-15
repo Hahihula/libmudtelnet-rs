@@ -216,3 +216,37 @@ fn parser_negotiates_other_new_options() {
     panic!("expected Some event for WILL ATCP");
   }
 }
+
+#[test]
+fn msdp_bidirectional_after_do() {
+  // Mirror GMCP behavior: after WILL MSDP + our DO, allow both directions.
+  let mut parser = Parser::new();
+  parser.options.support_remote(opt::MSDP);
+
+  // Server: IAC WILL MSDP
+  let events = parser.receive(&[cmd::IAC, cmd::WILL, opt::MSDP]);
+  assert_eq!(events.len(), 2);
+  match (&events[0], &events[1]) {
+    (TelnetEvents::DataSend(_), TelnetEvents::Negotiation(_)) => {}
+    _ => panic!("expected DO send followed by Negotiation for WILL MSDP"),
+  }
+
+  // Client can send MSDP subneg without having sent WILL MSDP
+  let send = parser
+    .subnegotiation(opt::MSDP, Bytes::from(&b"\x01HP\x02"[..]))
+    .expect("should allow MSDP send after WILL/DO");
+  match send {
+    TelnetEvents::DataSend(_) => {}
+    _ => panic!("expected DataSend for MSDP subnegotiation"),
+  }
+
+  // Client accepts MSDP subneg from server
+  let payload = Bytes::from(vec![msdp::VAR, b'V', b'A', b'R', msdp::VAL, b'1']);
+  let bytes = TelnetSubnegotiation::new(opt::MSDP, payload).to_bytes();
+  let recv = parser.receive(&bytes);
+  assert_eq!(recv.len(), 1);
+  match &recv[0] {
+    TelnetEvents::Subnegotiation(_) => {}
+    _ => panic!("expected Subnegotiation for MSDP"),
+  }
+}

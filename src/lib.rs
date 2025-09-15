@@ -69,6 +69,13 @@
 //!   option state changes for options you support (see [`compatibility`]).
 //! - Use [`Parser::subnegotiation`] to send payloads; the parser wraps bytes with
 //!   `IAC SB <option> ... IAC SE` and escapes `IAC` inside the body.
+//! - GMCP/MSDP interop: Once the server offers `WILL GMCP|MSDP` and the client
+//!   responds with `DO`, both sides may send subnegotiations. The parser treats
+//!   GMCP and MSDP as bidirectional after `WILL/DO`: it will accept their
+//!   subnegotiations when either side is active, and it will allow the client to
+//!   send them when the remote side is active, even if the client never sent
+//!   `WILL`. This matches common MUD server behavior and avoids handshake
+//!   deadlocks.
 //!
 //! MCCP decompression boundary
 //! - For MCCP2/3, when a compression turn‑on is received and supported, the parser
@@ -488,20 +495,32 @@ impl Parser {
   ///
   /// # Notes
   ///
-  /// This method will do nothing if the option is not "supported" locally via the `CompatibilityTable`.
+  /// This method will do nothing if the option is not supported/enabled. For
+  /// most options, the client must be the performer (local + `local_state`). For
+  /// GMCP/MSDP specifically, the parser also allows sending when the remote
+  /// side has enabled the option (remote + `remote_state`), reflecting the
+  /// de‑facto bidirectional semantics after a `WILL/DO` handshake.
   pub fn subnegotiation<T>(&mut self, option: u8, data: T) -> Option<TelnetEvents>
   where
     Bytes: From<T>,
   {
-    match self.options.get_option(option) {
-      CompatibilityEntry {
-        local: true,
-        local_state: true,
-        ..
-      } => Some(TelnetEvents::DataSend(
+    let entry = self.options.get_option(option);
+    // Allow sends when we are the performer (local+state). For GMCP/MSDP, treat
+    // the capability as bidirectional after WILL/DO: allow send when the remote
+    // side has enabled it too (remote+state).
+    let may_send = match option {
+      telnet::op_option::GMCP | telnet::op_option::MSDP => {
+        (entry.local && entry.local_state) || (entry.remote && entry.remote_state)
+      }
+      _ => entry.local && entry.local_state,
+    };
+
+    if may_send {
+      Some(TelnetEvents::DataSend(
         TelnetSubnegotiation::new(option, Bytes::from(data)).to_bytes(),
-      )),
-      _ => None,
+      ))
+    } else {
+      None
     }
   }
 
@@ -650,10 +669,17 @@ impl Parser {
             // Valid ending
             let opt_entry = self.options.get_option(buffer[2]);
             // Check appropriate direction based on option type
+            // - MCCP2: strictly server->client (remote)
+            // - GMCP/MSDP: bidirectional once negotiated (WILL/DO), accept if either
+            //   side is active. This matches common MUD behavior and avoids requiring
+            //   the client to also send WILL to be able to process server subnegs.
+            // - Others: default to local performer only.
             let should_process = match buffer[2] {
-              // MCCP2: Server-to-client compression, check remote state
               telnet::op_option::MCCP2 => opt_entry.remote && opt_entry.remote_state,
-              // MCCP3 and other options: Default behavior (local)
+              telnet::op_option::GMCP | telnet::op_option::MSDP => {
+                (opt_entry.remote && opt_entry.remote_state)
+                  || (opt_entry.local && opt_entry.local_state)
+              }
               _ => opt_entry.local && opt_entry.local_state,
             };
             if should_process && len >= 4 {

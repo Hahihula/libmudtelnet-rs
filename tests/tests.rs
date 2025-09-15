@@ -161,6 +161,34 @@ fn test_parser() {
 }
 
 #[test]
+fn test_gmcp_bidirectional_after_do() {
+  // When the server offers GMCP (WILL) and we accept (DO), both sides may send
+  // subnegotiations. We should not require sending WILL GMCP from the client.
+  let mut parser = Parser::new();
+  // We support the server performing GMCP.
+  parser.options.support_remote(opt::GMCP);
+
+  // Server: IAC WILL GMCP -> Client should send DO and mark remote_state=true.
+  let events = parser.receive(&[cmd::IAC, cmd::WILL, opt::GMCP]);
+  assert_eq!(
+    handle_events(events),
+    events![Event::Send, Event::Negotiation]
+  );
+
+  // Now the client should be permitted to SEND GMCP (bidirectional after DO)
+  let send = parser
+    .subnegotiation_text(opt::GMCP, "Core.Hello {}")
+    .expect("should allow GMCP send after WILL/DO");
+  assert_eq!(handle_events(vec![send]), events![Event::Send]);
+
+  // And we should accept GMCP subnegotiations from the server without local WILL
+  let recv = parser.receive(
+    &TelnetSubnegotiation::new(opt::GMCP, Bytes::copy_from_slice(b"Core.Ping {}")).to_bytes(),
+  );
+  assert_eq!(handle_events(recv), events![Event::Subnegotiation]);
+}
+
+#[test]
 fn test_subneg_separate_receives() {
   let mut instance: Parser = Parser::with_capacity(10);
   instance.options.support_local(opt::GMCP);
